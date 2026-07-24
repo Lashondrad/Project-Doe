@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-and-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # Root CLAUDE.md rule 11: both must exit 0, no exceptions.
+      - run: npm run typecheck
+      - run: npm run lint
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # ubuntu-latest ships Docker preinstalled/running — no extra setup
+      # needed for the Supabase CLI's local stack.
+      - name: Start local Supabase stack
+        run: npm run db:start
+      - name: Unit + integration tests (real DB/Auth/Storage, no mocks)
+        run: npm test
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+      - name: E2E tests (production build)
+        run: npm run test:e2e
+      - name: Stop local Supabase stack
+        if: always()
+        run: npm run db:stop
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

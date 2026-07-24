@@ -1,0 +1,12 @@
+# CLAUDE.md — lib/booking-engine/
+
+Scope: `lib/booking-engine/**` — availability computation, slot generation, risk flagging.
+
+## Rules
+1. **This is the one place slot availability logic lives.** Don't duplicate slot-computation logic in a page component or API route — import from here. If the admin calendar and the public booking page need slightly different views of availability, they should share the core `getAvailableSlots()` function and layer display differences on top, not fork the logic.
+2. **`getAvailableSlots()` must account for, in this order:** business hours (`availability_rules`) → date-specific overrides/closures (`availability_overrides`) → blocked time (`blocked_time`) → existing appointments + their buffers (`appointments.buffer_starts_at/buffer_ends_at`) → the service's own buffer_before/buffer_after → min_advance_hours / max_advance_days window. This function is advisory for the UI only — the DB exclusion constraint is still the final authority at insert time (see root CLAUDE.md rule 1). Never treat a slot returned here as guaranteed bookable.
+3. **All slot math happens in UTC internally.** Convert to the studio's configured timezone only when formatting for display. Use a timezone-aware library (`date-fns-tz` or equivalent) — never rely on the server or browser's local timezone implicitly.
+4. **Risk flagging (`risk-flagging.ts`) is a pure function** of form answers → `{ flagged: boolean, flaggedFields: string[] }|`. It must run server-side on submission (not just client-side for UX), matching the `high_risk_if` markers defined per-field in the `forms.fields` JSON schema. A booking is never blocked by a risk flag — per spec, it's allowed to submit and status becomes `needs_review`.
+5. **No silent fallback logic.** If availability data is missing or malformed for a staff member (e.g. no `availability_rules` configured at all), return an explicit "no availability configured" result the UI can show as an empty state — don't default to "always open" or "always closed."
+6. **Age (`age.ts`) is UX-only.** `meetsMinimumAge()` gives immediate client-side feedback; it is never the enforcement authority — see root CLAUDE.md's Intake/Consent/Photo section for where the real gate lives (DB CHECK constraint + `create_booking()`).
+7. **Photo handling (`photo.ts`) validates by magic bytes, not by trusting client-supplied MIME type.** A client claiming `image/jpeg` proves nothing on its own — `isValidJpeg()` checks the actual JPEG SOI marker bytes. Do not relax this to a `Content-Type` header check for convenience.
